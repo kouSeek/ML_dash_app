@@ -107,7 +107,7 @@ def getEDA(property):
 **PropertyState** : ME\n
 **PropertyCountry** : USA
 ''',
-'Americsa Best Value Inn Nashville Downtown' : '''**PropertyType** : Franchise\n
+'Americas Best Value Inn Nashville Downtown' : '''**PropertyType** : Franchise\n
 **PropertyCity** : Nashville\n
 **PropertyState** : TN\n
 **PropertyCountry** : USA
@@ -139,6 +139,43 @@ def getHolidayProximity(ind, holidays_ind):
     avg_dist = min(distances)
     return 1/(1+avg_dist)
 
+def genDerivedFeatures(mydf):
+    ## Create derived features
+    mydf["doy"] = mydf.ArrivalDate.apply(lambda x: x.strftime('%j')).astype("int")
+    mydf["dom"] = mydf.ArrivalDate.apply(lambda x: x.strftime('%d')).astype("int")
+    mydf["dow"] = mydf.ArrivalDate.apply(lambda x: x.strftime('%a'))
+    mydf["isWeekend"] = mydf.dow.isin(['Sat','Sun']).astype("int")
+    mydf["month"] = mydf.ArrivalDate.apply(lambda x: x.strftime('%b'))
+    mydf["woy"] = mydf.ArrivalDate.apply(lambda x: x.strftime('%U')).astype("int")
+
+    mydf["presentYear"] = mydf.ArrivalDate.apply(lambda x: x.strftime('%y') in ["19", "20"]).astype("int")
+    mydf["previousYear"] = mydf.ArrivalDate.apply(lambda x: x.strftime('%y')=="18").astype("int")
+
+    ## One hot encode DOW and Months
+    mydf = pd.concat([mydf, pd.get_dummies(mydf["dow"])], axis=1).drop("dow", axis=1)
+    mydf = pd.concat([mydf, pd.get_dummies(mydf["month"])], axis=1).drop("month", axis=1)
+
+    ## isHoliday
+    holidays = pd.read_csv("US_holidays.csv")
+    holidays.date = pd.to_datetime(holidays.date)
+    mydf["isHoliday"] = mydf.ArrivalDate.apply(lambda x: x in list(holidays.date)).astype("int")
+
+    ## holidayProximity
+    holidays_ind = list(mydf[mydf.isHoliday == 1].index)
+    def getHolidayProximity(ind):
+        distances = [abs(i-ind) for i in holidays_ind]
+        least_2_dist = sorted(distances)[:2]
+        avg_dist = 2*np.prod(least_2_dist)/sum(least_2_dist)
+        avg_dist = min(distances)
+        return 1/(1+avg_dist*.5)
+
+    mydf["ind"] = mydf.index
+    mydf["holidayProximity"] = mydf["ind"].apply(lambda x: getHolidayProximity(x))
+    mydf = mydf.drop("ind", axis=1)
+    
+    return mydf
+
+
 def prepData(property):
     df = pd.read_csv("../ReservationData/"+property+".csv")
 
@@ -149,6 +186,7 @@ def prepData(property):
     r = pd.date_range(start=df.ArrivalDate.min(), end=df.ArrivalDate.max())
     df = df.set_index('ArrivalDate').reindex(r).fillna(0).rename_axis('ArrivalDate').reset_index()
 
+    # df = genDerivedFeatures(df)
     ## Create derived features
     df["doy"] = df.ArrivalDate.apply(lambda x: x.strftime('%j')).astype("int")
     df["dom"] = df.ArrivalDate.apply(lambda x: x.strftime('%d')).astype("int")

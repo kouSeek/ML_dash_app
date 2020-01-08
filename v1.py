@@ -13,8 +13,10 @@ test_sizes = [30, 45, 60, 90, 15, 7]
 models = [ml.XGBRegressor()]
 weights = [1]
 
+months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.COSMO])
-app.title = "Demand Forecasting, Koushik"
+app.title = "Demand Forecasting, Evoke"
 
 app.layout = html.Div([
 	html.Div([
@@ -49,7 +51,16 @@ app.layout = html.Div([
 			id="my_test_size",
 		),
 	], style={'width': '15%', 'display': 'inline-block', }
-	),	
+	),
+
+	html.Div([
+		html.Label("Forecast Month for 2020:"),
+		dcc.Dropdown(options=[{'label':i, 'value':i} for i in months],
+			value=months[0],
+			id="my_months",
+		),
+	], style={'width': '15%', 'display': 'inline-block', }
+	),
 
 	dcc.Tabs([
 		dcc.Tab(label='Property Details', 
@@ -68,6 +79,11 @@ app.layout = html.Div([
 				id="table_pred", page_size = 15, style_header={'fontWeight': 'bold'},
 			)]
 		),
+		dcc.Tab(label="2020 Forecast",
+			children=[dash_table.DataTable(
+				id="table_forecast", page_size = 15, style_header={'fontWeight': 'bold'},
+			)]
+		),		
 		dcc.Tab(label="Raw Data",
 			children=[dash_table.DataTable(
 				id="table", page_size = 15, style_header={'fontWeight': 'bold'},
@@ -99,9 +115,10 @@ app.layout = html.Div([
 	[Input(component_id="my_dropdown", component_property="value"),
 	Input(component_id="my_conf", component_property="value"),
 	Input(component_id="my_test_size", component_property="value"),
+	Input(component_id="my_months", component_property="value"),
 	]
 )
-def update_div_prediction(prop_name, confidence, test_size):
+def update_div_prediction(prop_name, confidence, test_size, mon):
 	df = ml.prepData(prop_name)
 	eda = str(ml.getEDA(prop_name))
 	results, y_test, y_pred, ts, var_imp = ml.runModel(models, weights, df, test_size, confidence)
@@ -121,7 +138,7 @@ def update_div_prediction(prop_name, confidence, test_size):
 		data=[dict(x=list(var_imp.keys()), y=list(var_imp.values()), name="Variable Importance", type= 'bar'),
 		]
 	)
-	df.to_csv(prop_name+"_temp.csv", index=False)
+	# df.to_csv(prop_name+"_temp.csv", index=False)
 	data = df.to_dict('records')
 	cols = [{"name": i, "id": i} for i in df.columns]
 	
@@ -133,4 +150,4 @@ def update_div_prediction(prop_name, confidence, test_size):
 
 
 if __name__ == "__main__":
-	app.run_server(host="0.0.0.0",debug=True, dev_tools_ui=False)
+	app.run_server(host="0.0.0.0", port="8080", debug=True, dev_tools_ui=False)
