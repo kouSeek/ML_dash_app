@@ -3,19 +3,18 @@ warnings.simplefilter('ignore')
 
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, date
 from collections import OrderedDict
 
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.neighbors import KNeighborsRegressor
 from xgboost import XGBRegressor, plot_importance
 from sklearn.metrics import mean_squared_error, r2_score
 from math import sqrt
 
 
-def runModel(models, weights, mydf, test_size, confidence):
-    mydf = mydf.drop(["dom", "isHoliday", "holidayNearby"], axis=1)
+def runModel(models, weights, mydf, test_size, confidence, future_mon):
+    features_to_be_removed = ["dom", "isHoliday", "holidayNearby"]
+    mydf = mydf.drop(features_to_be_removed, axis=1)
     X = mydf.drop(["Count", "ArrivalDate"], axis=1)
     y = mydf["Count"]
 
@@ -37,6 +36,7 @@ def runModel(models, weights, mydf, test_size, confidence):
     ######
     # model.fit(X_train, y_train)
     # y_pred = model.predict(X_test)
+    '''Generate PLot data'''
     avg_val = y_test.mean()
 
     outp = f"**RMSE**: {sqrt(mean_squared_error(y_test, y_pred)):.2f}"
@@ -61,7 +61,19 @@ def runModel(models, weights, mydf, test_size, confidence):
     dic = {var_imp[0][i]: var_imp[1][i] for i in range(len(list(model.coef_)))}
     var_imp = OrderedDict(sorted(dic.items(), key=lambda x: x[1], reverse=True))
 
-    return outp, y_test, y_pred, mydf.ArrivalDate[-test_size:], var_imp
+    '''Future Forecast'''
+    date_range = pd.date_range(start=date(2020, 1, 1), end=date(2020, 12, 31))
+    X_forecast = pd.DataFrame(date_range, columns=["ArrivalDate"])
+    X_forecast["ArrivalDate"] = pd.to_datetime(X_forecast["ArrivalDate"])
+    X_forecast = genDerivedFeatures(X_forecast)
+    X_forecast = X_forecast[X_forecast[future_mon] == 1]
+
+    model.fit(X, y)
+    y_forecast = model.predict(X_forecast[list(X.columns)])
+
+
+    ## return
+    return outp, y_test, y_pred, mydf.ArrivalDate[-test_size:], var_imp, y_forecast, X_forecast
     
 
 
@@ -139,6 +151,7 @@ def getHolidayProximity(ind, holidays_ind):
     avg_dist = min(distances)
     return 1/(1+avg_dist)
 
+
 def genDerivedFeatures(mydf):
     ## Create derived features
     mydf["doy"] = mydf.ArrivalDate.apply(lambda x: x.strftime('%j')).astype("int")
@@ -162,22 +175,16 @@ def genDerivedFeatures(mydf):
 
     ## holidayProximity
     holidays_ind = list(mydf[mydf.isHoliday == 1].index)
-    def getHolidayProximity(ind):
-        distances = [abs(i-ind) for i in holidays_ind]
-        least_2_dist = sorted(distances)[:2]
-        avg_dist = 2*np.prod(least_2_dist)/sum(least_2_dist)
-        avg_dist = min(distances)
-        return 1/(1+avg_dist*.5)
-
     mydf["ind"] = mydf.index
-    mydf["holidayProximity"] = mydf["ind"].apply(lambda x: getHolidayProximity(x))
+    mydf["holidayProximity"] = mydf["ind"].apply(lambda x: getHolidayProximity(x, holidays_ind))
     mydf = mydf.drop("ind", axis=1)
-    
+    mydf["holidayNearby"] = (mydf.holidayProximity > 0.3).astype("int")
+
     return mydf
 
 
 def prepData(property):
-    df = pd.read_csv("../ReservationData/"+property+".csv")
+    df = pd.read_csv(property+".csv")
 
     df["ArrivalDate"] = pd.to_datetime(df["ArrivalDate"])
     df = df.sort_values(by=['ArrivalDate'])
@@ -186,32 +193,8 @@ def prepData(property):
     r = pd.date_range(start=df.ArrivalDate.min(), end=df.ArrivalDate.max())
     df = df.set_index('ArrivalDate').reindex(r).fillna(0).rename_axis('ArrivalDate').reset_index()
 
-    # df = genDerivedFeatures(df)
-    ## Create derived features
-    df["doy"] = df.ArrivalDate.apply(lambda x: x.strftime('%j')).astype("int")
-    df["dom"] = df.ArrivalDate.apply(lambda x: x.strftime('%d')).astype("int")
-    df["dow"] = df.ArrivalDate.apply(lambda x: x.strftime('%a'))
-    df["isWeekend"] = df.dow.isin(['Sat','Sun']).astype("int")
-    df["month"] = df.ArrivalDate.apply(lambda x: x.strftime('%b'))
-    df["woy"] = df.ArrivalDate.apply(lambda x: x.strftime('%U')).astype("int")
-
-    df["presentYear"] = df.ArrivalDate.apply(lambda x: x.strftime('%y')=="19").astype("int")
-    df["previousYear"] = df.ArrivalDate.apply(lambda x: x.strftime('%y')=="18").astype("int")
-
-    ## One hot encode DOW and Months
-    df = pd.concat([df, pd.get_dummies(df["dow"])], axis=1).drop("dow", axis=1)
-    df = pd.concat([df, pd.get_dummies(df["month"])], axis=1).drop("month", axis=1)
-
-    ## isHoliday
-    holidays = pd.read_csv("../ReservationData/US_holidays.csv")
-    holidays.date = pd.to_datetime(holidays.date)
-    df["isHoliday"] = df.ArrivalDate.apply(lambda x: x in list(holidays.date)).astype("int")
-    ## holidayProximity
-    holidays_ind = list(df[df.isHoliday == 1].index)
-    df["ind"] = df.index
-    df["holidayProximity"] = df["ind"].apply(lambda x: getHolidayProximity(x, holidays_ind))
-    df = df.drop("ind", axis=1)
-    df["holidayNearby"] = (df.holidayProximity > 0.3).astype("int")
+    ''''Create derived features'''
+    df = genDerivedFeatures(df)
 
     '''Do feature Engineering'''
     

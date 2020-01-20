@@ -70,23 +70,22 @@ app.layout = html.Div([
 		dcc.Tab(label='Variable Impact',
 			children=[dcc.Graph(id="div_feat_imp", style={'height': 600, "width": 1300,}, )]
 		),
-		dcc.Tab(label='Prediction Plot', 
-			children=[dcc.Markdown(id="div_metrics", style={'width': '20%', 'display': 'inline-block', "vertical-align":"top",}),
-					dcc.Graph(id="div_prediction", style={'height': 600, "width": 1000, 'display': 'inline-block'})]
-		),
 		dcc.Tab(label="Prediction Data",
 			children=[dash_table.DataTable(
 				id="table_pred", page_size = 15, style_header={'fontWeight': 'bold'},
 			)]
 		),
+		dcc.Tab(label='Prediction Plot', 
+			children=[dcc.Markdown(id="div_metrics", style={'width': '20%', 'display': 'inline-block', "vertical-align":"top",}),
+					dcc.Graph(id="div_prediction", style={'height': 600, "width": 1000, 'display': 'inline-block'})]
+		),
 		dcc.Tab(label="2020 Forecast",
-			children=[dash_table.DataTable(
-				id="table_forecast", page_size = 15, style_header={'fontWeight': 'bold'},
-			)]
+			children=[dcc.Graph(id="div_forecast", style={'height': 600, "width": 1000, 'display': 'inline-block'})
+			]
 		),		
 		dcc.Tab(label="Raw Data",
 			children=[dash_table.DataTable(
-				id="table", page_size = 15, style_header={'fontWeight': 'bold'},
+				id="table_rawdata", page_size = 15, style_header={'fontWeight': 'bold'},
 			)]
 		),
 	],
@@ -107,10 +106,11 @@ app.layout = html.Div([
 	Output(component_id="div_feat_imp", component_property="figure"),
 	Output(component_id="div_prediction", component_property="figure"),
 	Output(component_id="div_metrics", component_property="children"),
-	Output(component_id="table", component_property="data"),
-	Output(component_id="table", component_property="columns"),
+	Output(component_id="table_rawdata", component_property="data"),
+	Output(component_id="table_rawdata", component_property="columns"),
 	Output(component_id="table_pred", component_property="data"),
 	Output(component_id="table_pred", component_property="columns"),
+	Output(component_id="div_forecast", component_property="figure"),
 	],
 	[Input(component_id="my_dropdown", component_property="value"),
 	Input(component_id="my_conf", component_property="value"),
@@ -118,20 +118,20 @@ app.layout = html.Div([
 	Input(component_id="my_months", component_property="value"),
 	]
 )
-def update_div_prediction(prop_name, confidence, test_size, mon):
+def update_div_prediction(prop_name, confidence, test_size, future_mon):
 	df = ml.prepData(prop_name)
 	eda = str(ml.getEDA(prop_name))
-	results, y_test, y_pred, ts, var_imp = ml.runModel(models, weights, df, test_size, confidence)
+	results, y_test, y_pred, ts, var_imp, y_forecast, X_forecast = ml.runModel(models, weights, df, test_size, confidence, future_mon)
 
 	plot_history = dict(
 		data=[dict(x=df.ArrivalDate, y=df.Count, name="Prediction", ),
 		]
 	)
 	plot_pred= dict(
-		data=[dict(x=ts, y=y_pred, name="Prediction", line=dict(color='purple') ),
-			dict(x=ts, y=y_test, name="Actual", line=dict(color='green') ),
-			dict(x=ts, y=y_test+y_test.mean()*confidence, name="Actual+"+str(confidence*100)+"%", line=dict(color='lime', dash='dash') ),
-			dict(x=ts, y=y_test-y_test.mean()*confidence, name="Actual-"+str(confidence*100)+"%", line=dict(color='lime', dash='dash') ),
+		data=[dict(x=ts, y=y_pred, name="Prediction", line=dict(color='red') ),
+			dict(x=ts, y=y_test, name="Actual", line=dict(color='blue') ),
+			dict(x=ts, y=y_test+y_test.mean()*confidence, name="Actual+"+str(confidence*100)+"%", line=dict(color='cyan', dash='dash') ),
+			dict(x=ts, y=y_test-y_test.mean()*confidence, name="Actual-"+str(confidence*100)+"%", line=dict(color='cyan', dash='dash') ),
 		]
 	)
 	plot_feat_imp = dict(
@@ -145,7 +145,17 @@ def update_div_prediction(prop_name, confidence, test_size, mon):
 	pred_cols = ["Actual", "predicted", f"Actual+{confidence*100}%", f"Actual-{confidence*100}%"]
 	pred_data = pd.DataFrame({pred_cols[0]:y_test, pred_cols[1]:y_pred, pred_cols[2]:y_test*(1+confidence), pred_cols[3]:y_test*(1-confidence)}).to_dict('records')
 	pred_columns=[{"name": i, "id": i} for i in pred_cols]
-	return eda, plot_history, plot_feat_imp, plot_pred, results, data, cols, pred_data, pred_columns
+
+
+	temp = df[df[future_mon] == 1][df.presentYear == 1][df.ArrivalDate <= "2019/12/31"]
+	plot_forecast = dict(
+		data=[dict(x=X_forecast.dom, y=y_forecast, name="2020", line=dict(color='red') ),
+			dict(x=X_forecast.dom, y=temp["Count"], name="2019", line=dict(color='blue') ),
+		]
+	)
+
+
+	return eda, plot_history, plot_feat_imp, plot_pred, results, data, cols, pred_data, pred_columns, plot_forecast
 
 
 
